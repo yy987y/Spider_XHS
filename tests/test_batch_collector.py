@@ -10,6 +10,7 @@ class FakeApi:
         self.resolved_queries = []
         self.detail_urls = []
         self.search_pages = []
+        self.search_ids = []
 
     def search_some_user(self, query, require_num, cookies_str, proxies=None):
         self.resolved_queries.append(query)
@@ -61,6 +62,7 @@ class FakeApi:
         proxies=None,
     ):
         self.search_pages.append(page)
+        self.search_ids.append(search_id)
         return True, "success", {
             "success": True,
             "msg": "success",
@@ -150,6 +152,7 @@ class SearchCapFakeApi(FakeApi):
         proxies=None,
     ):
         self.search_pages.append(page)
+        self.search_ids.append(search_id)
         if page == 1:
             return True, "success", {
                 "success": True,
@@ -322,7 +325,44 @@ class EmptyDataFakeApi(FakeApi):
         proxies=None,
     ):
         self.search_pages.append(page)
+        self.search_ids.append(search_id)
         return True, "success", {"success": True, "msg": "success", "data": None}
+
+
+class MultiPageSearchFakeApi(FakeApi):
+    def search_note(
+        self,
+        query,
+        cookies_str,
+        page=1,
+        sort_type_choice=0,
+        note_type=0,
+        note_time=0,
+        note_range=0,
+        pos_distance=0,
+        geo="",
+        search_id=None,
+        proxies=None,
+    ):
+        self.search_pages.append(page)
+        self.search_ids.append(search_id)
+        if page == 1:
+            return True, "success", {
+                "success": True,
+                "msg": "success",
+                "data": {
+                    "items": [{"model_type": "note", "id": "n1", "xsec_token": "token1"}],
+                    "has_more": True,
+                },
+            }
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "items": [{"model_type": "note", "id": "n4", "xsec_token": "token4"}],
+                "has_more": False,
+            },
+        }
 
 
 class FailedDetailWithOldThenNewFakeApi(FakeApi):
@@ -460,6 +500,31 @@ def test_batch_collector_logs_search_candidate_cap(tmp_path):
         event.event_type == "search_candidate_cap_reached" and event.level == "warning"
         for event in result.events
     )
+
+
+def test_batch_collector_reuses_search_id_across_pages(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_user_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+        max_search_candidates=10,
+    )
+    api = MultiPageSearchFakeApi()
+    collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
+
+    result = collector.collect(red_ids=[])
+
+    assert [note.note_id for note in result.notes] == ["n1", "n4"]
+    assert api.search_pages == [1, 2]
+    assert len(api.search_ids) == 2
+    assert all(search_id is not None for search_id in api.search_ids)
+    assert len(set(api.search_ids)) == 1
 
 
 def test_batch_collector_skips_parse_failed_detail_and_continues(tmp_path):

@@ -9,6 +9,7 @@ from spider.batch_matcher import match_note_keywords
 from spider.batch_models import CollectTaskConfig, CollectedNote, CrawlEvent
 from spider.batch_time import is_before_range, is_in_range
 from xhs_utils.data_util import handle_note_info
+from xhs_utils.xhs_util import generate_search_id
 
 
 @dataclass
@@ -166,12 +167,15 @@ class BatchNoteCollector:
     def _collect_search_channel(self) -> None:
         page = 1
         candidate_count = 0
+        root_search_id = generate_search_id()
         while True:
+            search_id = generate_search_id(root_search_id)
             success, msg, res_json = self.api.search_note(
                 self.config.search_query,
                 self.cookies_str,
                 page=page,
                 sort_type_choice=self.config.sort_type_choice,
+                search_id=search_id,
                 proxies=self.proxies,
             )
             if not success:
