@@ -69,3 +69,21 @@ def test_write_outputs_creates_workbook_and_jsonl(tmp_path):
 
     log_lines = result["log_jsonl"].read_text(encoding="utf-8").splitlines()
     assert json.loads(log_lines[0])["event_type"] == "search_candidate_cap_reached"
+
+
+def test_write_outputs_sanitizes_task_name_in_filenames(tmp_path):
+    result = write_outputs(
+        notes=[],
+        keyword_rows=[],
+        stats_rows=[],
+        events=[],
+        output_dir=str(tmp_path),
+        task_name="A/B:测试",
+        timestamp="20260518_130000",
+    )
+
+    for path in result.values():
+        assert path.exists()
+        assert "/" not in path.name
+        assert ":" not in path.name
+        assert "A_B_测试" in path.name

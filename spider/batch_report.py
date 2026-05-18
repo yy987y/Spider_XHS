@@ -45,6 +45,8 @@ EVENT_HEADERS = [
     "created_at",
 ]
 
+INVALID_FILENAME_CHARS = '<>:"/\\|?*'
+
 
 def _json_default(value):
     if isinstance(value, datetime):
@@ -62,6 +64,13 @@ def _cell(value):
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False, default=_json_default)
     return value
+
+
+def _safe_filename_part(value: str) -> str:
+    safe_value = str(value).strip()
+    for char in INVALID_FILENAME_CHARS:
+        safe_value = safe_value.replace(char, "_")
+    return safe_value or "untitled"
 
 
 def _append_dict_rows(ws, headers, rows):
@@ -99,7 +108,7 @@ def write_outputs(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"小红书采集_{task_name}_{timestamp}"
+    base_name = f"小红书采集_{_safe_filename_part(task_name)}_{timestamp}"
     xlsx_path = output_path / f"{base_name}.xlsx"
     jsonl_path = output_path / f"{base_name}.jsonl"
     log_jsonl_path = output_path / f"{base_name}.logs.jsonl"
