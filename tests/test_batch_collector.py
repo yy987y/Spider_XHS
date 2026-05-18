@@ -173,6 +173,162 @@ class SearchCapFakeApi(FakeApi):
         }
 
 
+class ParseErrorFakeApi(FakeApi):
+    def get_user_note_info(
+        self,
+        user_id,
+        cursor,
+        cookies_str,
+        xsec_token="",
+        xsec_source="",
+        proxies=None,
+    ):
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "notes": [
+                    {"note_id": "bad", "xsec_token": "bad-token"},
+                    {"note_id": "n1", "xsec_token": "token1"},
+                ],
+                "has_more": False,
+            },
+        }
+
+    def get_note_info(self, url, cookies_str, proxies=None):
+        self.detail_urls.append(url)
+        note_id = url.split("/explore/", 1)[1].split("?", 1)[0]
+        if note_id == "bad":
+            return True, "success", {
+                "success": True,
+                "msg": "success",
+                "data": {"items": [{"id": "bad", "url": url, "note_card": {}}]},
+            }
+        return super().get_note_info(url, cookies_str, proxies)
+
+
+class BadListShapeFakeApi(FakeApi):
+    def get_user_note_info(
+        self,
+        user_id,
+        cursor,
+        cookies_str,
+        xsec_token="",
+        xsec_source="",
+        proxies=None,
+    ):
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "notes": [
+                    None,
+                    "bad-note",
+                    {"note_id": "n1", "xsec_token": "token1"},
+                ],
+                "has_more": False,
+            },
+        }
+
+    def search_note(
+        self,
+        query,
+        cookies_str,
+        page=1,
+        sort_type_choice=0,
+        note_type=0,
+        note_time=0,
+        note_range=0,
+        pos_distance=0,
+        geo="",
+        search_id=None,
+        proxies=None,
+    ):
+        self.search_pages.append(page)
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "items": [
+                    None,
+                    "bad-item",
+                    {"model_type": "note", "id": "n1", "xsec_token": "token1"},
+                ],
+                "has_more": False,
+            },
+        }
+
+
+class EmptyDataFakeApi(FakeApi):
+    def get_user_note_info(
+        self,
+        user_id,
+        cursor,
+        cookies_str,
+        xsec_token="",
+        xsec_source="",
+        proxies=None,
+    ):
+        return True, "success", {"success": True, "msg": "success", "data": None}
+
+    def search_note(
+        self,
+        query,
+        cookies_str,
+        page=1,
+        sort_type_choice=0,
+        note_type=0,
+        note_time=0,
+        note_range=0,
+        pos_distance=0,
+        geo="",
+        search_id=None,
+        proxies=None,
+    ):
+        self.search_pages.append(page)
+        return True, "success", {"success": True, "msg": "success", "data": None}
+
+
+class FailedDetailWithOldThenNewFakeApi(FakeApi):
+    def get_user_note_info(
+        self,
+        user_id,
+        cursor,
+        cookies_str,
+        xsec_token="",
+        xsec_source="",
+        proxies=None,
+    ):
+        if cursor == "next":
+            return True, "success", {
+                "success": True,
+                "msg": "success",
+                "data": {
+                    "notes": [{"note_id": "n1", "xsec_token": "token1"}],
+                    "has_more": False,
+                },
+            }
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "notes": [
+                    {"note_id": "missing", "xsec_token": "missing-token"},
+                    {"note_id": "n3", "xsec_token": "token3"},
+                ],
+                "cursor": "next",
+                "has_more": True,
+            },
+        }
+
+    def get_note_info(self, url, cookies_str, proxies=None):
+        self.detail_urls.append(url)
+        note_id = url.split("/explore/", 1)[1].split("?", 1)[0]
+        if note_id == "missing":
+            return False, "detail missing", {}
+        return super().get_note_info(url, cookies_str, proxies)
+
+
 def test_batch_collector_collects_user_and_search_channels(tmp_path):
     config = CollectTaskConfig(
         task_name="艾薇岚大超炮北京",
@@ -230,4 +386,82 @@ def test_batch_collector_logs_search_candidate_cap(tmp_path):
     assert any(
         event.event_type == "search_candidate_cap_reached" and event.level == "warning"
         for event in result.events
+    )
+
+
+def test_batch_collector_skips_parse_failed_detail_and_continues(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_search_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+    )
+    collector = BatchNoteCollector(
+        api=ParseErrorFakeApi(), cookies_str="cookie", config=config
+    )
+
+    result = collector.collect(red_ids=["red1"])
+
+    assert [note.note_id for note in result.notes] == ["n1"]
+    assert any(event.event_type == "note_detail_parse_failed" for event in result.events)
+
+
+def test_batch_collector_skips_bad_list_items_and_handles_empty_data(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        cache_path=str(tmp_path / "cache.jsonl"),
+    )
+    bad_list_result = BatchNoteCollector(
+        api=BadListShapeFakeApi(), cookies_str="cookie", config=config
+    ).collect(red_ids=["red1"])
+    empty_data_result = BatchNoteCollector(
+        api=EmptyDataFakeApi(), cookies_str="cookie", config=config
+    ).collect(red_ids=["red1"])
+
+    assert [note.note_id for note in bad_list_result.notes] == ["n1"]
+    assert any(
+        event.event_type == "user_note_item_invalid"
+        for event in bad_list_result.events
+    )
+    assert any(
+        event.event_type == "search_item_invalid" for event in bad_list_result.events
+    )
+    assert empty_data_result.notes == []
+    assert any(
+        event.event_type == "search_no_more" for event in empty_data_result.events
+    )
+
+
+def test_batch_collector_does_not_stop_before_range_when_detail_time_unknown(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_search_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+    )
+    api = FailedDetailWithOldThenNewFakeApi()
+    collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
+
+    result = collector.collect(red_ids=["red1"])
+
+    assert [note.note_id for note in result.notes] == ["n1"]
+    assert any("/explore/n1?" in url for url in api.detail_urls)
+    assert not any(
+        event.event_type == "user_before_date_range" for event in result.events
     )

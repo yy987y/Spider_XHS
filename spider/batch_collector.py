@@ -18,6 +18,12 @@ class BatchCollectResult:
     stats_rows: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class _FetchDetailResult:
+    publish_time: datetime | None = None
+    time_confirmed: bool = False
+
+
 class BatchNoteCollector:
     def __init__(self, api, cookies_str: str, config: CollectTaskConfig, proxies=None):
         self.api = api
@@ -81,29 +87,51 @@ class BatchNoteCollector:
                 )
                 return
 
-            data = (res_json or {}).get("data", {})
+            data = (res_json or {}).get("data") or {}
             notes = data.get("notes") or []
-            detail_times = []
+            page_results = []
             for simple_note in notes:
+                if not isinstance(simple_note, dict):
+                    self._add_event(
+                        level="warning",
+                        event_type="user_note_item_invalid",
+                        message="指定用户通道返回了非对象帖子条目，已跳过",
+                        channel="user",
+                        red_id=resolved.red_id,
+                        page=page,
+                        extra={"item_type": type(simple_note).__name__},
+                    )
+                    continue
                 note_id = simple_note.get("note_id") or simple_note.get("id")
                 if not note_id:
+                    self._add_event(
+                        level="warning",
+                        event_type="user_note_item_invalid",
+                        message="指定用户通道返回的帖子条目缺少 note_id，已跳过",
+                        channel="user",
+                        red_id=resolved.red_id,
+                        page=page,
+                        extra={"item": simple_note},
+                    )
                     continue
                 xsec_token = simple_note.get("xsec_token", "")
                 note_url = (
                     f"https://www.xiaohongshu.com/explore/{note_id}"
                     f"?xsec_token={xsec_token}&xsec_source=pc_user"
                 )
-                publish_time = self._fetch_note_detail(
+                detail_result = self._fetch_note_detail(
                     note_url,
                     source="user",
                     red_id=resolved.red_id,
                 )
-                if publish_time:
-                    detail_times.append(publish_time)
+                page_results.append(detail_result)
 
-            if detail_times and all(
-                is_before_range(publish_time, self.config.date_range)
-                for publish_time in detail_times
+            if page_results and all(
+                result.time_confirmed and result.publish_time
+                for result in page_results
+            ) and all(
+                is_before_range(result.publish_time, self.config.date_range)
+                for result in page_results
             ):
                 self._add_event(
                     level="info",
@@ -112,7 +140,7 @@ class BatchNoteCollector:
                     channel="user",
                     red_id=resolved.red_id,
                     page=page,
-                    count=len(detail_times),
+                    count=len(page_results),
                 )
                 return
 
@@ -146,11 +174,22 @@ class BatchNoteCollector:
                 )
                 return
 
-            data = (res_json or {}).get("data", {})
+            data = (res_json or {}).get("data") or {}
             items = data.get("items") or []
-            detail_times = []
+            page_results = []
             reached_cap = False
             for item in items:
+                if not isinstance(item, dict):
+                    self._add_event(
+                        level="warning",
+                        event_type="search_item_invalid",
+                        message="公开搜索返回了非对象条目，已跳过",
+                        channel="search",
+                        search_query=self.config.search_query,
+                        page=page,
+                        extra={"item_type": type(item).__name__},
+                    )
+                    continue
                 if item.get("model_type") != "note":
                     continue
                 if candidate_count >= self.config.max_search_candidates:
@@ -165,13 +204,12 @@ class BatchNoteCollector:
                     f"https://www.xiaohongshu.com/explore/{note_id}"
                     f"?xsec_token={xsec_token}&xsec_source=pc_search"
                 )
-                publish_time = self._fetch_note_detail(
+                detail_result = self._fetch_note_detail(
                     note_url,
                     source="search",
                     red_id="",
                 )
-                if publish_time:
-                    detail_times.append(publish_time)
+                page_results.append(detail_result)
 
             if reached_cap or candidate_count >= self.config.max_search_candidates:
                 self._add_event(
@@ -186,9 +224,12 @@ class BatchNoteCollector:
                 )
                 return
 
-            if detail_times and all(
-                is_before_range(publish_time, self.config.date_range)
-                for publish_time in detail_times
+            if page_results and all(
+                result.time_confirmed and result.publish_time
+                for result in page_results
+            ) and all(
+                is_before_range(result.publish_time, self.config.date_range)
+                for result in page_results
             ):
                 self._add_event(
                     level="info",
@@ -197,7 +238,7 @@ class BatchNoteCollector:
                     channel="search",
                     search_query=self.config.search_query,
                     page=page,
-                    count=len(detail_times),
+                    count=len(page_results),
                     extra={"platform_search_not_strictly_exhaustive": True},
                 )
                 return
@@ -216,7 +257,9 @@ class BatchNoteCollector:
                 return
             page += 1
 
-    def _fetch_note_detail(self, note_url: str, source: str, red_id: str) -> datetime | None:
+    def _fetch_note_detail(
+        self, note_url: str, source: str, red_id: str
+    ) -> _FetchDetailResult:
         success, msg, res_json = self.api.get_note_info(
             note_url,
             self.cookies_str,
@@ -232,7 +275,7 @@ class BatchNoteCollector:
                 search_query=self.config.search_query if source == "search" else "",
                 extra={"note_url": note_url},
             )
-            return None
+            return _FetchDetailResult()
 
         items = ((res_json or {}).get("data") or {}).get("items") or []
         if not items:
@@ -245,12 +288,38 @@ class BatchNoteCollector:
                 search_query=self.config.search_query if source == "search" else "",
                 extra={"note_url": note_url},
             )
-            return None
+            return _FetchDetailResult()
+        if not isinstance(items[0], dict):
+            self._add_event(
+                level="warning",
+                event_type="note_detail_item_invalid",
+                message="帖子详情返回了非对象条目",
+                channel=source,
+                red_id=red_id,
+                search_query=self.config.search_query if source == "search" else "",
+                extra={"note_url": note_url, "item_type": type(items[0]).__name__},
+            )
+            return _FetchDetailResult()
 
-        note_info = handle_note_info(items[0])
-        publish_time = datetime.strptime(note_info["upload_time"], "%Y-%m-%d %H:%M:%S")
+        try:
+            note_info = handle_note_info(items[0])
+            publish_time = datetime.strptime(
+                note_info["upload_time"], "%Y-%m-%d %H:%M:%S"
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            self._add_event(
+                level="error",
+                event_type="note_detail_parse_failed",
+                message=f"帖子详情解析失败: {exc}",
+                channel=source,
+                red_id=red_id,
+                search_query=self.config.search_query if source == "search" else "",
+                extra={"note_url": note_url},
+            )
+            return _FetchDetailResult()
+
         if not is_in_range(publish_time, self.config.date_range):
-            return publish_time
+            return _FetchDetailResult(publish_time=publish_time, time_confirmed=True)
 
         match = match_note_keywords(
             title=note_info.get("title", ""),
@@ -259,7 +328,7 @@ class BatchNoteCollector:
             keywords=self.config.board_keywords,
         )
         if not match.matched_keywords:
-            return publish_time
+            return _FetchDetailResult(publish_time=publish_time, time_confirmed=True)
 
         image_list = note_info.get("image_list") or [""]
         cover_url = note_info.get("video_cover") or image_list[0]
@@ -288,7 +357,7 @@ class BatchNoteCollector:
                 raw_meta={"ip_location": note_info.get("ip_location", "")},
             )
         )
-        return publish_time
+        return _FetchDetailResult(publish_time=publish_time, time_confirmed=True)
 
     def _build_stats(self, notes: list[CollectedNote]) -> list[dict]:
         date_range = self.config.date_range
