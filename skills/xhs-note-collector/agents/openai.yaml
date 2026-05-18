@@ -1,0 +1,4 @@
+interface:
+  display_name: "小红书帖子采集"
+  short_description: "基于 Spider_XHS 执行指定用户和公开搜索双通道帖子采集"
+  default_prompt: "读取 red_id Excel，按一组搜索词和关键词，采集近 7 天小红书帖子并输出 Excel、JSONL 和日志。"
