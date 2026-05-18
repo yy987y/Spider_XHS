@@ -189,6 +189,7 @@ class ParseErrorFakeApi(FakeApi):
             "data": {
                 "notes": [
                     {"note_id": "bad", "xsec_token": "bad-token"},
+                    {"note_id": "bad_attr", "xsec_token": "bad-attr-token"},
                     {"note_id": "n1", "xsec_token": "token1"},
                 ],
                 "has_more": False,
@@ -203,6 +204,41 @@ class ParseErrorFakeApi(FakeApi):
                 "success": True,
                 "msg": "success",
                 "data": {"items": [{"id": "bad", "url": url, "note_card": {}}]},
+            }
+        if note_id == "bad_attr":
+            return True, "success", {
+                "success": True,
+                "msg": "success",
+                "data": {
+                    "items": [
+                        {
+                            "id": "bad_attr",
+                            "url": url,
+                            "note_card": {
+                                "type": "normal",
+                                "user": {
+                                    "user_id": "u1",
+                                    "nickname": "账号1",
+                                    "avatar": "https://avatar",
+                                },
+                                "title": None,
+                                "desc": "正文描述",
+                                "interact_info": {
+                                    "liked_count": "10",
+                                    "collected_count": "2",
+                                    "comment_count": "3",
+                                    "share_count": "1",
+                                },
+                                "image_list": [
+                                    {"info_list": [{}, {"url": "https://cover"}]}
+                                ],
+                                "tag_list": [{"name": "北京"}],
+                                "time": 1779091200000,
+                                "ip_location": "北京",
+                            },
+                        }
+                    ]
+                },
             }
         return super().get_note_info(url, cookies_str, proxies)
 
@@ -408,7 +444,9 @@ def test_batch_collector_skips_parse_failed_detail_and_continues(tmp_path):
     result = collector.collect(red_ids=["red1"])
 
     assert [note.note_id for note in result.notes] == ["n1"]
-    assert any(event.event_type == "note_detail_parse_failed" for event in result.events)
+    assert [
+        event.event_type for event in result.events
+    ].count("note_detail_parse_failed") == 2
 
 
 def test_batch_collector_skips_bad_list_items_and_handles_empty_data(tmp_path):

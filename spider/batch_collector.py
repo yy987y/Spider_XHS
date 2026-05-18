@@ -328,7 +328,7 @@ class BatchNoteCollector:
             publish_time = datetime.strptime(
                 note_info["upload_time"], "%Y-%m-%d %H:%M:%S"
             )
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
             self._add_event(
                 level="error",
                 event_type="note_detail_parse_failed",
