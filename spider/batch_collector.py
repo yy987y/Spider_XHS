@@ -299,7 +299,35 @@ class BatchNoteCollector:
             )
             return _FetchDetailResult()
 
-        items = ((res_json or {}).get("data") or {}).get("items") or []
+        if not isinstance(res_json, dict):
+            self._add_note_detail_bad_data_event(
+                note_url=note_url,
+                source=source,
+                red_id=red_id,
+                message="帖子详情响应不是对象",
+                extra={"response_type": type(res_json).__name__},
+            )
+            return _FetchDetailResult()
+        data = res_json.get("data")
+        if not isinstance(data, dict):
+            self._add_note_detail_bad_data_event(
+                note_url=note_url,
+                source=source,
+                red_id=red_id,
+                message="帖子详情 data 不是对象",
+                extra={"data_type": type(data).__name__},
+            )
+            return _FetchDetailResult()
+        items = data.get("items")
+        if not isinstance(items, list):
+            self._add_note_detail_bad_data_event(
+                note_url=note_url,
+                source=source,
+                red_id=red_id,
+                message="帖子详情 items 不是列表",
+                extra={"items_type": type(items).__name__},
+            )
+            return _FetchDetailResult()
         if not items:
             self._add_event(
                 level="warning",
@@ -380,6 +408,26 @@ class BatchNoteCollector:
             )
         )
         return _FetchDetailResult(publish_time=publish_time, time_confirmed=True)
+
+    def _add_note_detail_bad_data_event(
+        self,
+        note_url: str,
+        source: str,
+        red_id: str,
+        message: str,
+        extra: dict,
+    ) -> None:
+        event_extra = {"note_url": note_url}
+        event_extra.update(extra)
+        self._add_event(
+            level="warning",
+            event_type="note_detail_bad_data",
+            message=message,
+            channel=source,
+            red_id=red_id,
+            search_query=self.config.search_query if source == "search" else "",
+            extra=event_extra,
+        )
 
     def _build_stats(self, notes: list[CollectedNote]) -> list[dict]:
         date_range = self.config.date_range

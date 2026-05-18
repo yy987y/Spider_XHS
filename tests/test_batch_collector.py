@@ -365,6 +365,43 @@ class FailedDetailWithOldThenNewFakeApi(FakeApi):
         return super().get_note_info(url, cookies_str, proxies)
 
 
+class MalformedDetailPayloadFakeApi(FakeApi):
+    def get_user_note_info(
+        self,
+        user_id,
+        cursor,
+        cookies_str,
+        xsec_token="",
+        xsec_source="",
+        proxies=None,
+    ):
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "notes": [
+                    {"note_id": "bad_data_list", "xsec_token": "bad-data-token"},
+                    {"note_id": "bad_items_dict", "xsec_token": "bad-items-token"},
+                    {"note_id": "n1", "xsec_token": "token1"},
+                ],
+                "has_more": False,
+            },
+        }
+
+    def get_note_info(self, url, cookies_str, proxies=None):
+        self.detail_urls.append(url)
+        note_id = url.split("/explore/", 1)[1].split("?", 1)[0]
+        if note_id == "bad_data_list":
+            return True, "success", {"success": True, "msg": "success", "data": []}
+        if note_id == "bad_items_dict":
+            return True, "success", {
+                "success": True,
+                "msg": "success",
+                "data": {"items": {}},
+            }
+        return super().get_note_info(url, cookies_str, proxies)
+
+
 def test_batch_collector_collects_user_and_search_channels(tmp_path):
     config = CollectTaskConfig(
         task_name="艾薇岚大超炮北京",
@@ -511,3 +548,26 @@ def test_batch_collector_does_not_stop_before_range_when_detail_time_unknown(tmp
     assert not any(
         event.event_type == "user_before_date_range" for event in result.events
     )
+
+
+def test_batch_collector_skips_malformed_detail_payloads_and_continues(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_search_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+    )
+    api = MalformedDetailPayloadFakeApi()
+    collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
+
+    result = collector.collect(red_ids=["red1"])
+
+    assert [note.note_id for note in result.notes] == ["n1"]
+    assert [
+        event.event_type for event in result.events
+    ].count("note_detail_bad_data") == 2
