@@ -60,7 +60,7 @@ def _cell(value):
     if isinstance(value, list):
         return "，".join(str(v) for v in value)
     if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False, default=_json_default)
     return value
 
 

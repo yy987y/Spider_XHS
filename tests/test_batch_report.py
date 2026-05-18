@@ -39,6 +39,7 @@ def test_write_outputs_creates_workbook_and_jsonl(tmp_path):
             channel="search",
             search_query="艾薇岚 大超炮 北京",
             count=1000,
+            extra={"seen_at": datetime(2026, 5, 18, 13, 30, 0)},
         )
     ]
 
@@ -56,6 +57,12 @@ def test_write_outputs_creates_workbook_and_jsonl(tmp_path):
     assert wb.sheetnames == ["命中帖子汇总", "按关键词展开明细", "采集统计", "异常与边界日志"]
     assert wb["命中帖子汇总"]["A1"].value == "note_id"
     assert wb["命中帖子汇总"]["A2"].value == "n1"
+    assert wb["命中帖子汇总"]["F2"].value == "大超炮"
+    assert wb["命中帖子汇总"]["J2"].value == "2026-05-18 12:00:00"
+    assert wb["命中帖子汇总"]["O2"].value == "艾薇岚，北京"
+    assert wb["按关键词展开明细"]["V2"].value == "艾薇岚"
+    assert wb["按关键词展开明细"]["V3"].value == "北京"
+    assert wb["异常与边界日志"]["I2"].value == '{"seen_at": "2026-05-18 13:30:00"}'
 
     lines = result["jsonl"].read_text(encoding="utf-8").splitlines()
     assert json.loads(lines[0])["note_id"] == "n1"
