@@ -56,6 +56,17 @@ def test_aggregator_merges_search_queries_by_exact_value():
     assert notes[0].search_query == "艾薇岚 大超炮 北京, 大超炮"
 
 
+def test_aggregator_deduplicates_split_search_query_tokens():
+    aggregator = NoteAggregator()
+
+    aggregator.add(make_note("n1", "user", ["A"], search_query="A"))
+    aggregator.add(make_note("n1", "search", ["B"], search_query="A, B"))
+
+    notes = aggregator.items()
+
+    assert notes[0].search_query == "A, B"
+
+
 def test_aggregator_len_returns_deduplicated_note_count():
     aggregator = NoteAggregator()
 

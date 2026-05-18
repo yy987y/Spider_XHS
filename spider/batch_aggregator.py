@@ -13,8 +13,9 @@ def _merge_unique(existing: list, new_values: list) -> list:
 
 def _merge_search_query(existing: str, new_query: str) -> str:
     queries = [query for query in (existing or "").split(", ") if query]
-    if new_query and new_query not in queries:
-        queries.append(new_query)
+    for query in (new_query or "").split(", "):
+        if query and query not in queries:
+            queries.append(query)
     return ", ".join(queries)
 
 
