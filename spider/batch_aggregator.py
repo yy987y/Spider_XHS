@@ -11,6 +11,13 @@ def _merge_unique(existing: list, new_values: list) -> list:
     return result
 
 
+def _merge_search_query(existing: str, new_query: str) -> str:
+    queries = [query for query in (existing or "").split(", ") if query]
+    if new_query and new_query not in queries:
+        queries.append(new_query)
+    return ", ".join(queries)
+
+
 class NoteAggregator:
     def __init__(self):
         self._notes = {}
@@ -25,8 +32,7 @@ class NoteAggregator:
         existing.matched_in_title = _merge_unique(existing.matched_in_title, note.matched_in_title)
         existing.matched_in_desc = _merge_unique(existing.matched_in_desc, note.matched_in_desc)
         existing.matched_in_tags = _merge_unique(existing.matched_in_tags, note.matched_in_tags)
-        if note.search_query and note.search_query not in existing.search_query:
-            existing.search_query = ", ".join([v for v in [existing.search_query, note.search_query] if v])
+        existing.search_query = _merge_search_query(existing.search_query, note.search_query)
 
     def items(self) -> list[CollectedNote]:
         return list(self._notes.values())
