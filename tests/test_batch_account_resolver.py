@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import openpyxl
 
@@ -19,6 +18,11 @@ class FakeApi:
         ]
 
 
+class ExplodingApi:
+    def search_some_user(self, query, require_num, cookies_str, proxies=None):
+        raise AssertionError("cache hit should not call API")
+
+
 def test_read_red_ids_from_excel(tmp_path):
     path = tmp_path / "users.xlsx"
     wb = openpyxl.Workbook()
@@ -30,6 +34,31 @@ def test_read_red_ids_from_excel(tmp_path):
     wb.save(path)
 
     assert read_red_ids_from_excel(str(path)) == ["abc123", "def456"]
+
+
+def test_read_red_ids_from_excel_closes_workbook(monkeypatch):
+    class FakeSheet:
+        def iter_rows(self, values_only=True):
+            return iter([("red_id",), ("abc123",)])
+
+    class FakeWorkbook:
+        active = FakeSheet()
+
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    wb = FakeWorkbook()
+
+    def fake_load_workbook(path, read_only=True, data_only=True):
+        return wb
+
+    monkeypatch.setattr(openpyxl, "load_workbook", fake_load_workbook)
+
+    assert read_red_ids_from_excel("users.xlsx") == ["abc123"]
+    assert wb.closed is True
 
 
 def test_account_resolver_resolves_and_writes_cache(tmp_path):
@@ -67,4 +96,28 @@ def test_account_resolver_uses_cache(tmp_path):
     resolved = resolver.resolve("abc123")
 
     assert resolved.nickname == "缓存账号"
+    assert resolved.source == "cache"
+
+
+def test_account_resolver_skips_bad_cache_lines_and_uses_valid_cache(tmp_path):
+    cache_path = tmp_path / "cache.jsonl"
+    valid_item = {
+        "red_id": "abc123",
+        "user_id": "u123",
+        "user_url": "https://www.xiaohongshu.com/user/profile/u123",
+        "nickname": "有效缓存",
+    }
+    cache_path.write_text(
+        "not-json\n"
+        + json.dumps({"red_id": "missing-required-fields"}, ensure_ascii=False)
+        + "\n"
+        + json.dumps(valid_item, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    resolver = AccountResolver(api=ExplodingApi(), cookies_str="cookie", cache_path=str(cache_path))
+
+    resolved = resolver.resolve("abc123")
+
+    assert resolved.nickname == "有效缓存"
     assert resolved.source == "cache"

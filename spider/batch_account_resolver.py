@@ -9,21 +9,24 @@ from spider.batch_models import ResolvedUser
 
 def read_red_ids_from_excel(path: str) -> List[str]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return []
-    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
-    if "red_id" not in headers:
-        raise ValueError("账号 Excel 必须包含 red_id 列")
-    red_id_index = headers.index("red_id")
-    red_ids = []
-    for row in rows[1:]:
-        value = row[red_id_index] if red_id_index < len(row) else None
-        red_id = str(value).strip() if value is not None else ""
-        if red_id:
-            red_ids.append(red_id)
-    return red_ids
+    try:
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            return []
+        headers = [str(value).strip() if value is not None else "" for value in rows[0]]
+        if "red_id" not in headers:
+            raise ValueError("账号 Excel 必须包含 red_id 列")
+        red_id_index = headers.index("red_id")
+        red_ids = []
+        for row in rows[1:]:
+            value = row[red_id_index] if red_id_index < len(row) else None
+            red_id = str(value).strip() if value is not None else ""
+            if red_id:
+                red_ids.append(red_id)
+        return red_ids
+    finally:
+        wb.close()
 
 
 class AccountResolver:
@@ -41,15 +44,18 @@ class AccountResolver:
         for line in self.cache_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            item = json.loads(line)
-            cache[item["red_id"]] = ResolvedUser(
-                red_id=item["red_id"],
-                user_id=item["user_id"],
-                user_url=item["user_url"],
-                nickname=item.get("nickname", ""),
-                source="cache",
-                raw_summary=item.get("raw_summary", {}),
-            )
+            try:
+                item = json.loads(line)
+                cache[item["red_id"]] = ResolvedUser(
+                    red_id=item["red_id"],
+                    user_id=item["user_id"],
+                    user_url=item["user_url"],
+                    nickname=item.get("nickname", ""),
+                    source="cache",
+                    raw_summary=item.get("raw_summary", {}),
+                )
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
         return cache
 
     def _append_cache(self, resolved: ResolvedUser) -> None:
