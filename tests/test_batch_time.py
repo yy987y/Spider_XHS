@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from spider.batch_time import parse_date_range
 
 
@@ -21,3 +23,8 @@ def test_parse_custom_date_range_includes_start_and_end_days():
     assert result.start == datetime(2026, 5, 1, 0, 0, 0)
     assert result.end == datetime(2026, 5, 18, 23, 59, 59)
     assert result.label == "2026-05-01_2026-05-18"
+
+
+def test_parse_custom_date_range_rejects_reversed_dates():
+    with pytest.raises(ValueError, match="开始日期不能晚于结束日期"):
+        parse_date_range("2026-05-18:2026-05-01", now=datetime(2026, 5, 18, 16, 30, 0))
