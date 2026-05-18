@@ -202,6 +202,42 @@ Cookie 获取方式：浏览器登录小红书后，按 `F12` 打开开发者工
 python -m spider.spider
 ```
 
+## 批量关键词采集
+
+第一版用于单组关键词任务，支持指定用户通道和公开搜索通道。它会读取包含 `red_id` 列的 Excel，默认抓近 7 天帖子，用完整搜索词调用小红书平台搜索，并用拆分后的看板关键词在标题、正文描述、标签中做基础宽松匹配。
+
+### 输入账号 Excel
+
+| red_id |
+|--------|
+| example_red_id |
+
+### 运行示例
+
+```bash
+PYTHONPATH=. python -m spider.collect_notes \
+  --users-excel ./users.xlsx \
+  --task-name 艾薇岚大超炮北京 \
+  --search-query "艾薇岚 大超炮 北京" \
+  --keywords "艾薇岚,大超炮,北京" \
+  --date-range recent_7_days \
+  --mode both \
+  --max-search-candidates 1000
+```
+
+### 输出文件
+
+- `datas/batch_outputs/小红书采集_<任务名>_<时间>.xlsx`
+- `datas/batch_outputs/小红书采集_<任务名>_<时间>.jsonl`
+- `datas/batch_outputs/小红书采集_<任务名>_<时间>.logs.jsonl`
+
+Excel 包含：
+
+- `命中帖子汇总`，按 `note_id` 去重。
+- `按关键词展开明细`，同一帖子命中多个关键词时会出现多行。
+- `采集统计`，记录通道、候选数、命中数等。
+- `异常与边界日志`，记录账号解析失败、接口失败、候选上限、疑似未抓全等。
+
 ### 🐳 Docker 部署（可选）
 
 ```bash
@@ -313,4 +349,3 @@ ps: 请加群11、12，人满或者过期 issue | wx 提醒
 ![group11](https://github.com/user-attachments/assets/7fdded35-52ca-4bcb-a5b7-935928ed417c)
 
 ![group12](https://github.com/user-attachments/assets/8dd858be-5843-4074-a2d5-fc48b3d61856)
-
