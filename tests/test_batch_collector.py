@@ -439,6 +439,14 @@ def test_batch_collector_skips_bad_list_items_and_handles_empty_data(tmp_path):
     )
     assert empty_data_result.notes == []
     assert any(
+        event.event_type == "user_page_bad_data" and event.level == "warning"
+        for event in empty_data_result.events
+    )
+    assert any(
+        event.event_type == "search_page_bad_data" and event.level == "warning"
+        for event in empty_data_result.events
+    )
+    assert any(
         event.event_type == "search_no_more" for event in empty_data_result.events
     )
 

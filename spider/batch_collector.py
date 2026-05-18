@@ -87,7 +87,18 @@ class BatchNoteCollector:
                 )
                 return
 
-            data = (res_json or {}).get("data") or {}
+            raw_data = (res_json or {}).get("data")
+            if not isinstance(raw_data, dict):
+                self._add_event(
+                    level="warning",
+                    event_type="user_page_bad_data",
+                    message="指定用户通道返回的 data 不是对象，已按空页处理",
+                    channel="user",
+                    red_id=resolved.red_id,
+                    page=page,
+                    extra={"data_type": type(raw_data).__name__},
+                )
+            data = raw_data if isinstance(raw_data, dict) else {}
             notes = data.get("notes") or []
             page_results = []
             for simple_note in notes:
@@ -174,7 +185,18 @@ class BatchNoteCollector:
                 )
                 return
 
-            data = (res_json or {}).get("data") or {}
+            raw_data = (res_json or {}).get("data")
+            if not isinstance(raw_data, dict):
+                self._add_event(
+                    level="warning",
+                    event_type="search_page_bad_data",
+                    message="公开搜索返回的 data 不是对象，已按空页处理",
+                    channel="search",
+                    search_query=self.config.search_query,
+                    page=page,
+                    extra={"data_type": type(raw_data).__name__},
+                )
+            data = raw_data if isinstance(raw_data, dict) else {}
             items = data.get("items") or []
             page_results = []
             reached_cap = False
