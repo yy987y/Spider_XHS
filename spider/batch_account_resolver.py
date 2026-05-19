@@ -80,12 +80,14 @@ class AccountResolver:
         if not exact:
             raise RuntimeError(f"未找到匹配小红书号: {red_id}")
         user_info = exact.get("user_info", exact)
-        user_id = user_info["user_id"]
+        user_id = user_info.get("user_id") or user_info.get("id")
+        if not user_id:
+            raise RuntimeError(f"匹配用户缺少 user_id/id: {red_id}")
         resolved = ResolvedUser(
             red_id=red_id,
             user_id=user_id,
             user_url=f"https://www.xiaohongshu.com/user/profile/{user_id}",
-            nickname=user_info.get("nickname", ""),
+            nickname=user_info.get("nickname") or user_info.get("name", ""),
             source="api",
             raw_summary={"matched_user": user_info},
         )

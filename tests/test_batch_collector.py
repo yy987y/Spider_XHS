@@ -365,6 +365,61 @@ class MultiPageSearchFakeApi(FakeApi):
         }
 
 
+class SearchListCardFakeApi(FakeApi):
+    def search_note(
+        self,
+        query,
+        cookies_str,
+        page=1,
+        sort_type_choice=0,
+        note_type=0,
+        note_time=0,
+        note_range=0,
+        pos_distance=0,
+        geo="",
+        search_id=None,
+        proxies=None,
+    ):
+        self.search_pages.append(page)
+        self.search_ids.append(search_id)
+        self.note_time = note_time
+        return True, "success", {
+            "success": True,
+            "msg": "success",
+            "data": {
+                "items": [
+                    {
+                        "model_type": "note",
+                        "id": "n-search",
+                        "xsec_token": "search-token",
+                        "note_card": {
+                            "type": "normal",
+                            "display_title": "北京大超炮真实记录",
+                            "corner_tag_info": [
+                                {"type": "publish_time", "text": "1小时前"}
+                            ],
+                            "user": {
+                                "user_id": "author-1",
+                                "nickname": "搜索作者",
+                            },
+                            "interact_info": {
+                                "liked_count": "12",
+                                "collected_count": "3",
+                                "comment_count": "4",
+                                "shared_count": "5",
+                            },
+                            "cover": {"url_default": "https://cover-search"},
+                        },
+                    }
+                ],
+                "has_more": False,
+            },
+        }
+
+    def get_note_info(self, url, cookies_str, proxies=None):
+        raise AssertionError("search list card should not fetch note detail")
+
+
 class FailedDetailWithOldThenNewFakeApi(FakeApi):
     def get_user_note_info(
         self,
@@ -453,6 +508,7 @@ def test_batch_collector_collects_user_and_search_channels(tmp_path):
         ),
         cache_path=str(tmp_path / "cache.jsonl"),
         max_search_candidates=10,
+        use_note_detail_api=True,
     )
     api = FakeApi()
     collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
@@ -473,6 +529,33 @@ def test_batch_collector_collects_user_and_search_channels(tmp_path):
     assert [note.note_id for note in result.notes] == ["n1"]
 
 
+def test_batch_collector_default_disables_detail_api_for_user_channel(tmp_path):
+    config = CollectTaskConfig(
+        task_name="艾薇岚大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="艾薇岚 大超炮 北京",
+        board_keywords=["艾薇岚", "大超炮", "北京"],
+        date_range=parse_date_range(
+            "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_search_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+    )
+    api = FakeApi()
+    collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
+
+    result = collector.collect(red_ids=["red1"])
+
+    assert result.notes == []
+    assert api.resolved_queries == []
+    assert api.detail_urls == []
+    assert any(
+        event.event_type == "user_channel_disabled_without_detail_api"
+        and event.level == "warning"
+        for event in result.events
+    )
+
+
 def test_batch_collector_logs_search_candidate_cap(tmp_path):
     config = CollectTaskConfig(
         task_name="艾薇岚大超炮北京",
@@ -491,11 +574,13 @@ def test_batch_collector_logs_search_candidate_cap(tmp_path):
 
     result = collector.collect(red_ids=[])
 
-    assert len(result.notes) == 1
-    assert [note.note_id for note in result.notes] == ["n1"]
+    assert result.notes == []
     assert api.search_pages == [1]
-    assert all("/explore/u-skip?" not in url for url in api.detail_urls)
-    assert all("/explore/n4?" not in url for url in api.detail_urls)
+    assert api.detail_urls == []
+    assert any(
+        event.event_type == "search_item_missing_list_card" and event.level == "warning"
+        for event in result.events
+    )
     assert any(
         event.event_type == "search_candidate_cap_reached" and event.level == "warning"
         for event in result.events
@@ -520,11 +605,47 @@ def test_batch_collector_reuses_search_id_across_pages(tmp_path):
 
     result = collector.collect(red_ids=[])
 
-    assert [note.note_id for note in result.notes] == ["n1", "n4"]
+    assert result.notes == []
     assert api.search_pages == [1, 2]
+    assert api.detail_urls == []
     assert len(api.search_ids) == 2
     assert all(search_id is not None for search_id in api.search_ids)
     assert len(set(api.search_ids)) == 1
+
+
+def test_batch_collector_exports_search_list_card_without_detail_fetch(tmp_path):
+    config = CollectTaskConfig(
+        task_name="大超炮北京",
+        user_excel_path="unused.xlsx",
+        search_query="大超炮 北京",
+        board_keywords=["大超炮", "北京"],
+        date_range=parse_date_range(
+            "recent_7_days", now=datetime(2026, 5, 18, 12, 0, 0)
+        ),
+        run_user_channel=False,
+        cache_path=str(tmp_path / "cache.jsonl"),
+        max_search_candidates=10,
+        search_note_time_choice=2,
+    )
+    api = SearchListCardFakeApi()
+    collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
+
+    result = collector.collect(red_ids=[])
+
+    assert api.note_time == 2
+    assert [note.note_id for note in result.notes] == ["n-search"]
+    assert result.notes[0].title == "北京大超炮真实记录"
+    assert result.notes[0].publish_time is None
+    assert result.notes[0].publish_time_text == "1小时前"
+    assert result.notes[0].note_type == "normal"
+    assert result.notes[0].detail_status == "search_list_only"
+    assert result.notes[0].liked_count == "12"
+    assert result.notes[0].collected_count == "3"
+    assert result.notes[0].comment_count == "4"
+    assert result.notes[0].share_count == "5"
+    assert result.notes[0].cover_url == "https://cover-search"
+    assert result.notes[0].matched_keywords == ["大超炮", "北京"]
+    assert result.notes[0].sources == ["search"]
 
 
 def test_batch_collector_skips_parse_failed_detail_and_continues(tmp_path):
@@ -538,6 +659,7 @@ def test_batch_collector_skips_parse_failed_detail_and_continues(tmp_path):
         ),
         run_search_channel=False,
         cache_path=str(tmp_path / "cache.jsonl"),
+        use_note_detail_api=True,
     )
     collector = BatchNoteCollector(
         api=ParseErrorFakeApi(), cookies_str="cookie", config=config
@@ -561,6 +683,7 @@ def test_batch_collector_skips_bad_list_items_and_handles_empty_data(tmp_path):
             "2026-05-18:2026-05-18", now=datetime(2026, 5, 18, 12, 0, 0)
         ),
         cache_path=str(tmp_path / "cache.jsonl"),
+        use_note_detail_api=True,
     )
     bad_list_result = BatchNoteCollector(
         api=BadListShapeFakeApi(), cookies_str="cookie", config=config
@@ -602,6 +725,7 @@ def test_batch_collector_does_not_stop_before_range_when_detail_time_unknown(tmp
         ),
         run_search_channel=False,
         cache_path=str(tmp_path / "cache.jsonl"),
+        use_note_detail_api=True,
     )
     api = FailedDetailWithOldThenNewFakeApi()
     collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)
@@ -626,6 +750,7 @@ def test_batch_collector_skips_malformed_detail_payloads_and_continues(tmp_path)
         ),
         run_search_channel=False,
         cache_path=str(tmp_path / "cache.jsonl"),
+        use_note_detail_api=True,
     )
     api = MalformedDetailPayloadFakeApi()
     collector = BatchNoteCollector(api=api, cookies_str="cookie", config=config)

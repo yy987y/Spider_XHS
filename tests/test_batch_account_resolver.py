@@ -18,6 +18,18 @@ class FakeApi:
         ]
 
 
+class CurrentSearchUserShapeApi:
+    def search_some_user(self, query, require_num, cookies_str, proxies=None):
+        return True, "success", [
+            {
+                "id": "u-current",
+                "name": "现网账号",
+                "red_id": query,
+                "xsec_token": "user-token",
+            }
+        ]
+
+
 class ExplodingApi:
     def search_some_user(self, query, require_num, cookies_str, proxies=None):
         raise AssertionError("cache hit should not call API")
@@ -74,6 +86,21 @@ def test_account_resolver_resolves_and_writes_cache(tmp_path):
     assert resolved.source == "api"
     cached = [json.loads(line) for line in cache_path.read_text(encoding="utf-8").splitlines()]
     assert cached[0]["red_id"] == "abc123"
+
+
+def test_account_resolver_supports_current_search_user_shape(tmp_path):
+    cache_path = tmp_path / "cache.jsonl"
+    resolver = AccountResolver(
+        api=CurrentSearchUserShapeApi(),
+        cookies_str="cookie",
+        cache_path=str(cache_path),
+    )
+
+    resolved = resolver.resolve("abc123")
+
+    assert resolved.user_id == "u-current"
+    assert resolved.nickname == "现网账号"
+    assert resolved.raw_summary["matched_user"]["xsec_token"] == "user-token"
 
 
 def test_account_resolver_uses_cache(tmp_path):

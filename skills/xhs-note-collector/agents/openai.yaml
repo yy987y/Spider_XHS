@@ -1,4 +1,4 @@
 interface:
-  display_name: "小红书帖子采集"
-  short_description: "基于 Spider_XHS 执行指定用户和公开搜索双通道帖子采集"
-  default_prompt: "读取 red_id Excel，按一组搜索词和关键词，采集近 7 天小红书帖子并输出 Excel、JSONL 和日志。"
+  display_name: "小红书关键词笔记采集"
+  short_description: "根据用户给出的时间范围和关键词自动弹出浏览器，登录后采集笔记并生成 XLSX、Markdown 与 HTML 看板"
+  default_prompt: "根据我给出的时间范围和关键词，直接打开小红书笔记采集浏览器向导；如需登录，让我扫码确认，随后自动采集、补全正文并输出 Excel、Markdown、HTML、JSONL 和日志。"

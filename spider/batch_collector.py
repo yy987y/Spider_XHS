@@ -36,7 +36,16 @@ class BatchNoteCollector:
 
     def collect(self, red_ids: list[str]) -> BatchCollectResult:
         if self.config.run_user_channel:
-            self._collect_user_channel(red_ids)
+            if self.config.use_note_detail_api:
+                self._collect_user_channel(red_ids)
+            else:
+                self._add_event(
+                    level="warning",
+                    event_type="user_channel_disabled_without_detail_api",
+                    message="指定用户通道依赖帖子详情接口；当前已为稳定性禁用",
+                    channel="user",
+                    count=len(red_ids),
+                )
         if self.config.run_search_channel:
             self._collect_search_channel()
         notes = self.aggregator.items()
@@ -175,6 +184,7 @@ class BatchNoteCollector:
                 self.cookies_str,
                 page=page,
                 sort_type_choice=self.config.sort_type_choice,
+                note_time=self.config.search_note_time_choice,
                 search_id=search_id,
                 proxies=self.proxies,
             )
@@ -230,6 +240,26 @@ class BatchNoteCollector:
                     f"https://www.xiaohongshu.com/explore/{note_id}"
                     f"?xsec_token={xsec_token}&xsec_source=pc_search"
                 )
+                list_result = self._add_search_list_note(
+                    item=item,
+                    note_id=note_id,
+                    note_url=note_url,
+                )
+                if list_result:
+                    page_results.append(list_result)
+                    continue
+                if not self.config.use_note_detail_api:
+                    self._add_event(
+                        level="warning",
+                        event_type="search_item_missing_list_card",
+                        message="公开搜索条目缺少可用列表信息，已跳过以避免触发详情接口频控",
+                        channel="search",
+                        search_query=self.config.search_query,
+                        page=page,
+                        extra={"note_id": note_id, "note_url": note_url},
+                    )
+                    page_results.append(_FetchDetailResult(time_confirmed=False))
+                    continue
                 detail_result = self._fetch_note_detail(
                     note_url,
                     source="search",
@@ -398,6 +428,8 @@ class BatchNoteCollector:
                 author_user_id=note_info.get("user_id", ""),
                 red_id=red_id,
                 publish_time=publish_time,
+                note_type=note_info.get("note_type", ""),
+                detail_status="detail",
                 liked_count=note_info.get("liked_count", ""),
                 collected_count=note_info.get("collected_count", ""),
                 comment_count=note_info.get("comment_count", ""),
@@ -412,6 +444,90 @@ class BatchNoteCollector:
             )
         )
         return _FetchDetailResult(publish_time=publish_time, time_confirmed=True)
+
+    def _add_search_list_note(
+        self, item: dict, note_id: str, note_url: str
+    ) -> _FetchDetailResult | None:
+        note_card = item.get("note_card")
+        if not isinstance(note_card, dict):
+            return None
+        title = note_card.get("display_title") or note_card.get("title") or ""
+        desc = note_card.get("desc") or ""
+        tags = self._extract_search_list_tags(note_card)
+        match = match_note_keywords(
+            title=title,
+            desc=desc,
+            tags=tags,
+            keywords=self.config.board_keywords,
+        )
+        if not match.matched_keywords:
+            return _FetchDetailResult(time_confirmed=False)
+        user = note_card.get("user") if isinstance(note_card.get("user"), dict) else {}
+        interact = (
+            note_card.get("interact_info")
+            if isinstance(note_card.get("interact_info"), dict)
+            else {}
+        )
+        self.aggregator.add(
+            CollectedNote(
+                note_id=note_id,
+                note_url=note_url,
+                cover_url=self._extract_search_list_cover(note_card),
+                title=title,
+                desc=desc,
+                tags=tags,
+                author_nickname=user.get("nickname") or user.get("nick_name") or "",
+                author_user_id=user.get("user_id", ""),
+                red_id="",
+                publish_time=None,
+                publish_time_text=self._extract_search_list_publish_text(note_card),
+                note_type=note_card.get("type", ""),
+                detail_status="search_list_only",
+                liked_count=interact.get("liked_count", ""),
+                collected_count=interact.get("collected_count", ""),
+                comment_count=interact.get("comment_count", ""),
+                share_count=interact.get("share_count")
+                or interact.get("shared_count", ""),
+                matched_keywords=match.matched_keywords,
+                matched_in_title=match.matched_in_title,
+                matched_in_desc=match.matched_in_desc,
+                matched_in_tags=match.matched_in_tags,
+                sources=["search"],
+                search_query=self.config.search_query,
+                raw_meta={"xsec_token": item.get("xsec_token", "")},
+            )
+        )
+        return _FetchDetailResult(time_confirmed=False)
+
+    @staticmethod
+    def _extract_search_list_cover(note_card: dict) -> str:
+        cover = note_card.get("cover") if isinstance(note_card.get("cover"), dict) else {}
+        if cover.get("url_default"):
+            return cover["url_default"]
+        image_list = note_card.get("image_list") or []
+        for image in image_list:
+            if not isinstance(image, dict):
+                continue
+            info_list = image.get("info_list") or []
+            for info in reversed(info_list):
+                if isinstance(info, dict) and info.get("url"):
+                    return info["url"]
+        return ""
+
+    @staticmethod
+    def _extract_search_list_publish_text(note_card: dict) -> str:
+        for tag in note_card.get("corner_tag_info") or []:
+            if isinstance(tag, dict) and tag.get("type") == "publish_time":
+                return tag.get("text", "")
+        return ""
+
+    @staticmethod
+    def _extract_search_list_tags(note_card: dict) -> list[str]:
+        tags = []
+        for tag in note_card.get("tag_list") or []:
+            if isinstance(tag, dict) and tag.get("name"):
+                tags.append(tag["name"])
+        return tags
 
     def _add_note_detail_bad_data_event(
         self,
@@ -440,6 +556,7 @@ class BatchNoteCollector:
             {"metric": "total_events", "value": len(self.events)},
             {"metric": "run_user_channel", "value": self.config.run_user_channel},
             {"metric": "run_search_channel", "value": self.config.run_search_channel},
+            {"metric": "use_note_detail_api", "value": self.config.use_note_detail_api},
             {"metric": "date_range", "value": date_range.label},
             {"metric": "search_query", "value": self.config.search_query},
             {

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import openpyxl
 
+from spider.batch_dashboard import build_dashboard_from_xlsx
+
 
 SUMMARY_HEADERS = [
     "note_id",
@@ -17,10 +19,13 @@ SUMMARY_HEADERS = [
     "author_user_id",
     "red_id",
     "publish_time",
+    "publish_time_text",
+    "note_type",
     "liked_count",
     "collected_count",
     "comment_count",
     "share_count",
+    "detail_status",
     "matched_keywords",
     "matched_in_title",
     "matched_in_desc",
@@ -104,6 +109,7 @@ def write_outputs(
     output_dir,
     task_name,
     timestamp=None,
+    detail_index=None,
 ):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -133,6 +139,7 @@ def write_outputs(
     _append_dict_rows(ws_events, EVENT_HEADERS, events)
 
     wb.save(xlsx_path)
+    html_path = build_dashboard_from_xlsx(xlsx_path, detail_index=detail_index)
 
     with jsonl_path.open("w", encoding="utf-8") as f:
         for note in notes:
@@ -142,4 +149,9 @@ def write_outputs(
         for event in events:
             f.write(json.dumps(event, ensure_ascii=False, default=_json_default) + "\n")
 
-    return {"xlsx": xlsx_path, "jsonl": jsonl_path, "log_jsonl": log_jsonl_path}
+    return {
+        "xlsx": xlsx_path,
+        "html": html_path,
+        "jsonl": jsonl_path,
+        "log_jsonl": log_jsonl_path,
+    }

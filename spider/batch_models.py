@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+DEFAULT_MAX_SEARCH_CANDIDATES = 50
+
 
 @dataclass
 class DateRange:
@@ -19,8 +21,10 @@ class CollectTaskConfig:
     date_range: DateRange
     run_user_channel: bool = True
     run_search_channel: bool = True
-    max_search_candidates: int = 1000
+    use_note_detail_api: bool = False
+    max_search_candidates: int = DEFAULT_MAX_SEARCH_CANDIDATES
     sort_type_choice: int = 1
+    search_note_time_choice: int = 0
     output_dir: str = "datas/batch_outputs"
     cache_path: str = "datas/cache/red_id_user_cache.jsonl"
 
@@ -54,11 +58,14 @@ class CollectedNote:
     author_nickname: str
     author_user_id: str
     red_id: str
-    publish_time: datetime
+    publish_time: Optional[datetime]
     liked_count: str
     collected_count: str
     comment_count: str
     share_count: str
+    note_type: str = ""
+    publish_time_text: str = ""
+    detail_status: str = "detail"
     matched_keywords: List[str] = field(default_factory=list)
     matched_in_title: List[str] = field(default_factory=list)
     matched_in_desc: List[str] = field(default_factory=list)

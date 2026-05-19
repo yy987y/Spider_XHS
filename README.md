@@ -222,7 +222,7 @@ PYTHONPATH=. python -m spider.collect_notes \
   --keywords "艾薇岚,大超炮,北京" \
   --date-range recent_7_days \
   --mode both \
-  --max-search-candidates 1000
+  --max-search-candidates 50
 ```
 
 ### 输出文件
